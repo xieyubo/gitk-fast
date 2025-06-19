@@ -30,7 +30,8 @@
             </div>
         </div>
         <div class="toolbar-panel">
-            <div><span class="label">Commit ID:</span><span id="commit-id-field"></span></div>
+            <div style="flex: 1"><span class="label">Commit ID:</span><span id="commit-id-field"></span></div>
+            <div class="options"><input type="checkbox" id="no-merges-checkbox"checked onclick="on_no_merges_selection_changed()">No merges</div>
         </div>
         <div class="detail-panel">
             <div class="commit-detail">

@@ -131,10 +131,18 @@ pre {
 .toolbar-panel {
     border-top: 1px solid #848484;
     padding: 8px;
+    display: flex;
+    justify-content: center;
 
     .label {
         font-weight: 600;
         margin-right: 4px;
+    }
+
+    .options {
+        display: flex;
+        justify-content: center;
+        height: 100%;
     }
 }
 

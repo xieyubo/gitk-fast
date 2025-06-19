@@ -2,47 +2,53 @@ const server = location.origin;
 const queries = new URLSearchParams(location.search);
 const repo = queries.get("repo") || "";
 const path = queries.get("path") || "";
+var g_noMergesCheckbox;
 var g_commits;
 
 window.onload = async () => {
+    g_noMergesCheckbox = document.getElementById("no-merges-checkbox");
+
     var verDom = document.getElementById("version-column");
     verDom.innerText = `Current Ver: ${kVersion}`;
     fetch("https://raw.githubusercontent.com/xieyubo/gitk-fast/refs/heads/release/VERSION")
         .then(r => r.text())
         .then(newVersion => {
             //if (newVersion != kVersion) {
-                verDom.innerHTML = `Current Ver: ${kVersion} | <a class="clickable-text" href="https://github.com/xieyubo/gitk-fast/releases" target=_blank>New Ver: ${newVersion}</a>`;
+            verDom.innerHTML = `Current Ver: ${kVersion} | <a class="clickable-text" href="https://github.com/xieyubo/gitk-fast/releases" target=_blank>New Ver: ${newVersion}</a>`;
             //}
         });
+
+    // Read settings from local storage.
+    g_noMergesCheckbox.checked = localStorage.getItem("no-merges") == "1";
+
     await load_commits();
 }
 
 const kColumnColors
     = [
-          "#06a77d",
-          "#ff6347",
-          "#0066cc",
-          "#6666ff",
-          "#9900cc",
-          "#993366",
-          "#996633",
-          "#669900",
-          "#b37700",
-          "#ff6666",
-          "#ff9900",
-          "#00e6e6",
-          "#999966",
-          "#008000",
-          "#669999",
-          "#333399",
-      ];
+        "#06a77d",
+        "#ff6347",
+        "#0066cc",
+        "#6666ff",
+        "#9900cc",
+        "#993366",
+        "#996633",
+        "#669900",
+        "#b37700",
+        "#ff6666",
+        "#ff9900",
+        "#00e6e6",
+        "#999966",
+        "#008000",
+        "#669999",
+        "#333399",
+    ];
 
 const columnEndedTrack = {};
 
 const kLineHight = 28;
 
-function show_detail_loading_wrapper(show)
-{
+function show_detail_loading_wrapper(show) {
     if (show) {
         document.getElementById("commit-detail-waitting-cover").classList.remove("hidden");
         document.getElementById("commit-file-list-waitting-cover").classList.remove("hidden");
@@ -52,8 +58,7 @@ function show_detail_loading_wrapper(show)
     }
 }
 
-function show_commits_loading_wrapper(show)
-{
+function show_commits_loading_wrapper(show) {
     if (show) {
         document.getElementById("gitk-history-content-waitting-cover").classList.remove("hidden");
     } else {
@@ -61,14 +66,12 @@ function show_commits_loading_wrapper(show)
     }
 }
 
-function is_column_ended(commit, commits)
-{
+function is_column_ended(commit, commits) {
     return (commit.parentIndexes[0] < 0 || commits[commit.parentIndexes[0]].column != commit.column)
         && (commit.parentIndexes[1] < 0 || commits[commit.parentIndexes[1]].column != commit.column);
 }
 
-function crate_graph(commit, commits)
-{
+function crate_graph(commit, commits) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.classList.add("graph");
     svg.setAttribute("width", `${(commit.maxReservedColumn + 1) * 14 + 7}`);
@@ -127,8 +130,7 @@ function crate_graph(commit, commits)
     return svg;
 }
 
-function crate_message(commit)
-{
+function crate_message(commit) {
     const message = document.createElement("div");
     message.classList.add("message");
     var txt = document.createTextNode(commit.summary);
@@ -136,8 +138,7 @@ function crate_message(commit)
     return message;
 }
 
-function create_commit_navigation_node(label, commit)
-{
+function create_commit_navigation_node(label, commit) {
     const dom = document.createElement("div");
     dom.classList.add("nowrap");
     dom.appendChild(document.createTextNode(`${label}: `));
@@ -154,8 +155,7 @@ function create_commit_navigation_node(label, commit)
     return dom;
 }
 
-function create_commit_detail(commit, detailPanelDom, fileListDom)
-{
+function create_commit_detail(commit, detailPanelDom, fileListDom) {
     var detailDomList = [];
     var fileDomList = [];
 
@@ -221,17 +221,15 @@ function create_commit_detail(commit, detailPanelDom, fileListDom)
     fileListDom.replaceChildren(...fileDomList);
 }
 
-function select_commit(commitId)
-{
+function select_commit(commitId) {
     var commitRow = document.getElementById(commitId);
     if (commitRow) {
-        commitRow.scrollIntoView({ "block" : "nearest" });
+        commitRow.scrollIntoView({ "block": "nearest" });
         onCommitClick(commitRow);
     }
 }
 
-async function onCommitClick(row)
-{
+async function onCommitClick(row) {
     if (onCommitClick.lastSelectedRow) {
         onCommitClick.lastSelectedRow.classList.remove("selected");
     }
@@ -259,8 +257,7 @@ async function onCommitClick(row)
     show_detail_loading_wrapper(false);
 }
 
-function onSelectFile(fileDom)
-{
+function onSelectFile(fileDom) {
     if (onSelectFile.lastSelectedFileDom) {
         onSelectFile.lastSelectedFileDom.classList.remove("selected");
     }
@@ -269,8 +266,7 @@ function onSelectFile(fileDom)
     fileDom.detailDom.scrollIntoView();
 }
 
-function find_children(commitId)
-{
+function find_children(commitId) {
     if (!g_commits) {
         return [];
     }
@@ -289,15 +285,27 @@ function find_children(commitId)
     return children;
 }
 
-async function load_commits()
-{
+function on_no_merges_selection_changed() {
+    if (g_noMergesCheckbox.checked) {
+        localStorage.setItem("no-merges", "1");
+    } else {
+        localStorage.removeItem("no-merges");
+    }
+    load_commits();
+}
+
+async function load_commits() {
     // clear old data.
+    g_commits = null;
     const commitsListDom = document.getElementById("gitk-history-content");
     commitsListDom.replaceChildren();
     show_commits_loading_wrapper(true);
 
     try {
-        const url = `${server}/api/git-log?repo=${encodeURI(repo)}&path=${encodeURI(path)}`;
+        var url = `${server}/api/git-log?repo=${encodeURI(repo)}&path=${encodeURI(path)}`;
+        if (g_noMergesCheckbox.checked) {
+            url += "&noMerges=1";
+        }
         const response = await fetch(url);
         const commits = g_commits = await response.json();
         const res = [];

@@ -351,7 +351,7 @@ std::string get_git_commit(const std::string& repoPath, const std::string& commi
     return dump(j);
 }
 
-std::string get_git_log(git_repository* repo, const std::string& repoPath, const std::string& follow)
+std::string get_git_log(git_repository* repo, const std::string& repoPath, const std::string& follow, bool noMerges)
 {
     avaliable_columns.clear();
     next_avaliable_columnt = 0;
@@ -365,8 +365,14 @@ std::string get_git_log(git_repository* repo, const std::string& repoPath, const
 
     auto count = 500u;
     commits.reserve(count);
-    auto hashListStr
-        = ExternRun(std::format("cmd /c git log -n {} --pretty=format:%H -- {}", count, follow), repoPath.c_str());
+    auto cmd = std::format("cmd /c git log -n {} --pretty=format:%H", count);
+    if (noMerges) {
+        cmd += " --no-merges";
+    }
+    if (!follow.empty()) {
+        cmd += " -- " + follow;
+    }
+    auto hashListStr = ExternRun(cmd, repoPath.c_str());
     std::istringstream in { std::move(hashListStr) };
     std::string line;
     while (std::getline(in, line)) {
@@ -440,11 +446,11 @@ std::string get_git_log(git_repository* repo, const std::string& repoPath, const
     return serialize(commits);
 }
 
-std::string get_git_log(const std::string& repoPath, const std::string& path)
+std::string get_git_log(const std::string& repoPath, const std::string& path, bool noMerges)
 {
     auto pGit = GetSharedGitRepository(repoPath);
-    return get_git_log(
-        pGit->GetRepo(), pGit->GetRepoRoot(), std::filesystem::relative(path, pGit->GetRepoWorkDir()).string());
+    return get_git_log(pGit->GetRepo(), pGit->GetRepoRoot(),
+        std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(), noMerges);
 }
 
 std::string get_current_app_full_path()
@@ -461,6 +467,13 @@ std::string get_current_app_full_path()
             buffer.resize(2 * buffer.size());
         }
     }
+}
+
+static const std::string GetHttpQueryParameter(
+    const httplib::Request& req, const std::string& key, std::string&& defaultValue)
+{
+    auto it = req.params.find(key);
+    return it == req.params.end() ? std::move(defaultValue) : it->second;
 }
 
 /// @brief Process static file request handler. If the file is not embedded, return Unhandled so that the request
@@ -481,14 +494,15 @@ static httplib::Server::HandlerResponse ProcessStaticFileRequest(const httplib::
 /// @brief Handle get git log request. Request path is: /api/git-log?repo=...&path=...
 static void ProcessGetGitLogRequest(const httplib::Request& req, httplib::Response& res)
 {
-    auto repoIt = req.params.find("repo");
-    if (repoIt == req.params.end()) {
+    auto repo = GetHttpQueryParameter(req, "repo", "");
+    if (repo.empty()) {
         res.status = httplib::StatusCode::NotFound_404;
-    } else {
-        auto pathIt = req.params.find("path");
-        res.set_content(
-            get_git_log(repoIt->second, pathIt != req.params.end() ? pathIt->second : ""), "application/json");
+        return;
     }
+
+    auto path = GetHttpQueryParameter(req, "path", "");
+    auto noMerges = GetHttpQueryParameter(req, "noMerges", "") == "1";
+    res.set_content(get_git_log(repo, path, noMerges), "application/json");
 }
 
 /// @brief Handle get git commit detail request. Request path is: /api/git-commit/{commitId}
