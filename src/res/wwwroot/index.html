@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>gitk-fast</title>
+    <link rel="shortcut icon" href="favicon.svg" type="image/svg">
+    <link href="app.css" rel="stylesheet" />
+    <script src="version.js"></script>
+    <script src="app.js"></script>
+</head>
+
+<body>
+    <div class="app">
+        <div class="history-panel">
+            <div id="gitk-history-content-waitting-cover" class="waitting-cover hidden">
+                <div class="loader">
+                    <div class="inner one"></div>
+                    <div class="inner two"></div>
+                    <div class="inner three"></div>
+                </div>
+            </div>
+            <div class="wrapper">
+                <div class="background">
+                    <div class="graph-and-message"></div>
+                    <div class="author"></div>
+                    <div class="date"></div>
+                </div>
+                <div id="gitk-history-content" class="gitk-history-content">
+                </div>
+            </div>
+        </div>
+        <div class="toolbar-panel">
+            <div><span class="label">Commit ID:</span><span id="commit-id-field"></span></div>
+        </div>
+        <div class="detail-panel">
+            <div class="commit-detail">
+                <div id="commit-detail-waitting-cover" class="waitting-cover hidden">
+                    <div class="loader">
+                        <div class="inner one"></div>
+                        <div class="inner two"></div>
+                        <div class="inner three"></div>
+                    </div>
+                </div>
+                <div id="commit-detail"></div>
+            </div>
+            <div class="commit-file-list">
+                <div id="commit-file-list-waitting-cover" class="waitting-cover hidden">
+                    <div class="loader">
+                        <div class="inner one"></div>
+                        <div class="inner two"></div>
+                        <div class="inner three"></div>
+                    </div>
+                </div>
+                <div id="commit-file-list"></div>
+            </div>
+        </div>
+        <div class="footer">
+            <div id="version-column"></div>
+        </div>
+    </div>
+</body>
+
+</html>

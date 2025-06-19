@@ -1,0 +1,4 @@
+BasedOnStyle: WebKit
+AllowShortFunctionsOnASingleLine: InlineOnly
+AlwaysBreakTemplateDeclarations: Yes
+ColumnLimit: 120
