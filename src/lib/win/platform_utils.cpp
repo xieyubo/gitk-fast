@@ -4,9 +4,26 @@ module;
 #include <format>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #include <windows.h>
 
-export module gitkf:external_runner;
+export module gitkf:platform_utils;
+
+export std::string get_current_app_full_path()
+{
+    std::vector<char> buffer {};
+    buffer.resize(MAX_PATH);
+    while (true) {
+        auto res = GetModuleFileNameA(nullptr, buffer.data(), buffer.size());
+        if (!res) {
+            throw std::runtime_error { "Get application full path failed." };
+        } else if (res < buffer.size()) {
+            return buffer.data();
+        } else {
+            buffer.resize(2 * buffer.size());
+        }
+    }
+}
 
 export std::string ExternRun(const std::string& commandLine, const char* workingDir)
 {
@@ -69,4 +86,21 @@ export std::string ExternRun(const std::string& commandLine, const char* working
     }
 
     return output;
+}
+
+export void RunAsDaemon(const std::string& cmd)
+{
+    // No server is running, start it.
+    STARTUPINFOA si { .cb = sizeof(si) };
+    PROCESS_INFORMATION pi {};
+    if (!CreateProcessA(
+            nullptr, (char*)cmd.c_str(), nullptr, nullptr, false, DETACHED_PROCESS, nullptr, nullptr, &si, &pi)) {
+        auto err = GetLastError();
+        throw std::runtime_error { std::format("Start server failed, error code: {}", err) };
+    }
+}
+
+export void OpenUrl(const std::string& url)
+{
+    ShellExecuteA(0, 0, url.c_str(), 0, 0, SW_SHOW);
 }

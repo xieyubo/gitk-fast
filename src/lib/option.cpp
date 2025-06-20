@@ -1,11 +1,12 @@
 module;
 
+#include <cstring>
 #include <filesystem>
 #include <string>
 
 export module gitkf:option;
 
-static const int kDefaultPort = 13324;
+constexpr int kDefaultPort = 13324;
 
 static bool ParseFlag(int i, char* argv[], const char* key, bool& val)
 {

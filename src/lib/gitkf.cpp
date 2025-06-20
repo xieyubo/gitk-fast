@@ -16,10 +16,10 @@ module;
 
 export module gitkf:gitkf;
 import :client_exception;
-import :external_runner;
 import :git_smart_pointer;
 import :git_repository;
 import :option;
+import :platform_utils;
 
 using json = nlohmann::json;
 
@@ -432,22 +432,6 @@ std::string get_git_log(const std::string& repoPath, const std::string& path, bo
         std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(), noMerges);
 }
 
-std::string get_current_app_full_path()
-{
-    std::vector<char> buffer {};
-    buffer.resize(MAX_PATH);
-    while (true) {
-        auto res = GetModuleFileNameA(nullptr, buffer.data(), buffer.size());
-        if (!res) {
-            throw std::runtime_error { "Get application full path failed." };
-        } else if (res < buffer.size()) {
-            return buffer.data();
-        } else {
-            buffer.resize(2 * buffer.size());
-        }
-    }
-}
-
 static const std::string GetHttpQueryParameter(
     const httplib::Request& req, const std::string& key, std::string&& defaultValue)
 {
@@ -549,13 +533,7 @@ export int gitkf_main(int argc, char* argv[])
         auto res = client.Get("/");
         if (!res) {
             // No server is running, start it.
-            STARTUPINFOA si { .cb = sizeof(si) };
-            PROCESS_INFORMATION pi {};
-            if (!CreateProcessA(nullptr, (char*)std::format("{} --server", get_current_app_full_path()).c_str(),
-                    nullptr, nullptr, false, DETACHED_PROCESS, nullptr, nullptr, &si, &pi)) {
-                auto err = GetLastError();
-                throw std::runtime_error { std::format("Start server failed, error code: {}", err) };
-            }
+            RunAsDaemon(std::format("{} --server", get_current_app_full_path()));
         }
 
         // Server is running started, open the url.
@@ -563,7 +541,7 @@ export int gitkf_main(int argc, char* argv[])
         if (!option.follow.empty()) {
             url += std::format("&path={}", option.follow);
         }
-        ShellExecuteA(0, 0, url.c_str(), 0, 0, SW_SHOW);
+        OpenUrl(url);
         return 0;
     }
 }

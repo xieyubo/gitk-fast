@@ -4,9 +4,10 @@ on:
   push:
     branches:
     - main
+    - linux
 
 jobs:
-  build:
+  build-on-windows:
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -28,3 +29,30 @@ jobs:
       with:
         name: gitkf
         path: build/gitkf.exe
+
+  build-on-linux:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:25.04
+    steps:
+    - name: Install packages
+      run: |
+        apt update && apt install -y clang cmake g++-15 git ninja-build
+
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        CC=gcc-15 CXX=clang++ cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release
+        ninja
+
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: gitkf
+        path: build/gitkf

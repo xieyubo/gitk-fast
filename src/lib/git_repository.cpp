@@ -3,6 +3,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <thirdparty/libgit2/include/git2.h>

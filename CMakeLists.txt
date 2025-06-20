@@ -9,6 +9,7 @@ include("thirdparty/CMakeRC.cmake")
 
 include_directories(
     .
+    thirdparty/libgit2/include
 )
 
 add_subdirectory(src)

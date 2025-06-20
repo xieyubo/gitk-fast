@@ -8,7 +8,7 @@ module;
 
 export module gitkf:ring_buffer;
 
-template <typename T, size_t N>
+export template <typename T, size_t N>
     requires(N > 0)
 class ring_buffer;
 

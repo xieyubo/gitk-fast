@@ -1,4 +1,5 @@
 option(BUILD_SHARED_LIBS "" OFF)
 option(BUILD_TESTS "" OFF)
 option(BUILD_CLI "" OFF)
+set(USE_HTTPS "OFF" CACHE STRING "")
 add_subdirectory(libgit2)
