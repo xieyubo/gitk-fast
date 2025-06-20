@@ -1,7 +1,7 @@
 const server = location.origin;
 const queries = new URLSearchParams(location.search);
-const repo = queries.get("repo") || "";
-const path = queries.get("path") || "";
+const g_repo = queries.get("repo") || "";
+const g_path = queries.get("path") || "";
 var g_noMergesCheckbox;
 var g_commits;
 
@@ -246,7 +246,7 @@ async function onCommitClick(row) {
 
     show_detail_loading_wrapper(true);
     try {
-        const url = `${server}/api/git-commit/${row.getAttribute("commitid")}?repo=${encodeURI(repo)}`;
+        const url = `${server}/api/git-commit/${row.getAttribute("commitid")}?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
         const response = await fetch(url);
         const commit = await response.json();
         create_commit_detail(commit, detailPanelDom, fileListDom);
@@ -302,7 +302,7 @@ async function load_commits() {
     show_commits_loading_wrapper(true);
 
     try {
-        var url = `${server}/api/git-log?repo=${encodeURI(repo)}&path=${encodeURI(path)}`;
+        var url = `${server}/api/git-log?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
         if (g_noMergesCheckbox.checked) {
             url += "&noMerges=1";
         }

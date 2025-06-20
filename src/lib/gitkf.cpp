@@ -15,6 +15,7 @@ module;
 #undef const
 
 export module gitkf:gitkf;
+import :client_exception;
 import :external_runner;
 import :git_smart_pointer;
 import :git_repository;
@@ -302,7 +303,7 @@ void create_detail_header(json& j, git_commit* pCommit)
     j["message"] = create_message_lines(pCommit);
 }
 
-std::string get_git_commit(const std::string& repoPath, const std::string& commitId)
+std::string get_git_commit(const std::string& repoPath, const std::string& follow, const std::string& commitId)
 {
     auto pGit = GetSharedGitRepository(repoPath);
 
@@ -315,39 +316,17 @@ std::string get_git_commit(const std::string& repoPath, const std::string& commi
 
     json j;
     j["id"] = commitId;
+
+    // Get metadata
     create_detail_header(j, pCommit.get());
 
-    auto parentCount = git_commit_parentcount(pCommit.get());
-    if (parentCount < 2) {
-        std::unique_ptr<git_tree> pParentTreeTree {};
-        if (parentCount) {
-            std::unique_ptr<git_commit> pParent {};
-            git_commit_parent(std::out_ptr(pParent), pCommit.get(), 0);
-            git_commit_tree(std::out_ptr(pParentTreeTree), pParent.get());
-        }
-
-        std::unique_ptr<git_tree> pTree {};
-        git_commit_tree(std::out_ptr(pTree), pCommit.get());
-
-        std::string patch {};
-        if (pParentTreeTree && pTree) {
-            // libgit2 is slow for diff, invoking git diff directly.
-            auto parentTreeOid = GitHashToString(git_tree_id(pParentTreeTree.get())->id);
-            auto treeOid = GitHashToString(git_tree_id(pTree.get())->id);
-            patch = ExternRun(std::format("cmd /c git diff {} {}", parentTreeOid, treeOid), repoPath.c_str());
-        } else {
-            std::unique_ptr<git_diff> pDiff {};
-            git_diff_tree_to_tree(std::out_ptr(pDiff), pGit->GetRepo(), pParentTreeTree.get(), pTree.get(), nullptr);
-
-            git_buf buf {};
-            std::unique_ptr<git_buf> pBuf { &buf };
-            git_diff_to_buf(pBuf.get(), pDiff.get(), GIT_DIFF_FORMAT_PATCH);
-            if (pBuf->ptr) {
-                patch = pBuf->ptr;
-            }
-        }
-        j["patch"] = parse_patch(patch);
+    // Get diff
+    auto cmd = std::format("cmd /c git show --pretty=format: {}", commitId);
+    if (!follow.empty()) {
+        cmd += " -- " + follow;
     }
+    j["patch"] = parse_patch(ExternRun(cmd, repoPath.c_str()));
+
     return dump(j);
 }
 
@@ -508,12 +487,15 @@ static void ProcessGetGitLogRequest(const httplib::Request& req, httplib::Respon
 /// @brief Handle get git commit detail request. Request path is: /api/git-commit/{commitId}
 static void ProcessGetGitCommitRequest(const httplib::Request& req, httplib::Response& res)
 {
-    auto repoIt = req.params.find("repo");
-    if (repoIt == req.params.end()) {
+    auto repo = GetHttpQueryParameter(req, "repo", "");
+    if (repo.empty()) {
         res.status = httplib::StatusCode::NotFound_404;
-    } else {
-        res.set_content(get_git_commit(repoIt->second, req.path_params.at("commitId")), "application/json");
+        return;
     }
+
+    auto path = GetHttpQueryParameter(req, "path", "");
+    auto commitId = req.path_params.at("commitId");
+    res.set_content(get_git_commit(repo, path, commitId), "application/json");
 }
 
 /// @brief Start server. This function won't return until the server is stopped (currently, we never stop server).
