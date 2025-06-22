@@ -4,6 +4,7 @@ on:
   push:
     branches:
     - main
+    - buddybuild/*
 
 jobs:
   build-on-windows:
@@ -26,7 +27,7 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: gitkf
+        name: gitkf-win
         path: build/gitkf.exe
 
   build-on-linux:
@@ -53,5 +54,5 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: gitkf
+        name: gitkf-linux
         path: build/gitkf
