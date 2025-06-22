@@ -1,12 +1,19 @@
+import "./components.js";
+
 const server = location.origin;
 const queries = new URLSearchParams(location.search);
 const g_repo = queries.get("repo") || "";
 const g_path = queries.get("path") || "";
+var g_app;
+var g_ignoreWhitespaceCheckbox;
 var g_noMergesCheckbox;
 var g_commits;
+var g_selected_commit;
 
 window.onload = async () => {
+    window.app = g_app = new App();
     g_noMergesCheckbox = document.getElementById("no-merges-checkbox");
+    g_ignoreWhitespaceCheckbox = document.getElementById("ignore-whitespace-checkbox");
 
     var verDom = document.getElementById("version-column");
     verDom.innerText = `Current Ver: ${kVersion}`;
@@ -18,10 +25,7 @@ window.onload = async () => {
             //}
         });
 
-    // Read settings from local storage.
-    g_noMergesCheckbox.checked = localStorage.getItem("no-merges") == "1";
-
-    await load_commits();
+    await g_app.load_commits_async();
 }
 
 const kColumnColors
@@ -235,26 +239,8 @@ async function onCommitClick(row) {
     }
     row.classList.add("selected");
     onCommitClick.lastSelectedRow = row;
-
-    // clear old data.
-    const detailPanelDom = document.getElementById("commit-detail");
-    const fileListDom = document.getElementById("commit-file-list");
-    const commitIdFieldDom = document.getElementById("commit-id-field");
-    detailPanelDom.replaceChildren();
-    fileListDom.replaceChildren();
-    commitIdFieldDom.innerText = "";
-
-    show_detail_loading_wrapper(true);
-    try {
-        const url = `${server}/api/git-commit/${row.getAttribute("commitid")}?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
-        const response = await fetch(url);
-        const commit = await response.json();
-        create_commit_detail(commit, detailPanelDom, fileListDom);
-        commitIdFieldDom.innerText = commit.id;
-    } catch (ex) {
-        console.error(ex);
-    }
-    show_detail_loading_wrapper(false);
+    g_selected_commit = row.commit;
+    await g_app.load_commit_async();
 }
 
 function onSelectFile(fileDom) {
@@ -285,63 +271,97 @@ function find_children(commitId) {
     return children;
 }
 
-function on_no_merges_selection_changed() {
-    if (g_noMergesCheckbox.checked) {
-        localStorage.setItem("no-merges", "1");
-    } else {
-        localStorage.removeItem("no-merges");
-    }
-    load_commits();
+function clean_commit_detail() {
+    const detailPanelDom = document.getElementById("commit-detail");
+    const fileListDom = document.getElementById("commit-file-list");
+    const commitIdFieldDom = document.getElementById("commit-id-field");
+    detailPanelDom.replaceChildren();
+    fileListDom.replaceChildren();
+    commitIdFieldDom.innerText = "";
 }
 
-async function load_commits() {
-    // clear old data.
-    g_commits = null;
-    const commitsListDom = document.getElementById("gitk-history-content");
-    commitsListDom.replaceChildren();
-    show_commits_loading_wrapper(true);
-
-    try {
-        var url = `${server}/api/git-log?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
-        if (g_noMergesCheckbox.checked) {
-            url += "&noMerges=1";
+class App {
+    async load_commit_async() {
+        if (!g_selected_commit) {
+            return;
         }
-        const response = await fetch(url);
-        const commits = g_commits = await response.json();
-        const res = [];
-        for (var i = 0; i < commits.length; ++i) {
-            commit = commits[i];
-            const row = document.createElement("div");
-            row.setAttribute("id", `commit-${commit.id}`);
-            row.setAttribute("style", `height: ${kLineHight}px`);
-            row.setAttribute("commitid", commit.id);
-            row.addEventListener("click", () => onCommitClick(row));
-            row.classList.add("row");
 
-            const graphAndMessage = document.createElement("div");
-            graphAndMessage.classList.add("graph-and-message");
-            graphAndMessage.appendChild(crate_graph(commit, commits));
-            graphAndMessage.appendChild(crate_message(commit));
-            row.appendChild(graphAndMessage);
+        // clear old data.
+        clean_commit_detail();
 
-            const author = document.createElement("div");
-            author.classList.add("author");
-            author.classList.add("oneline");
-            txt = document.createTextNode(commit["author"]);
-            author.appendChild(txt);
-            row.appendChild(author);
+        const detailPanelDom = document.getElementById("commit-detail");
+        const fileListDom = document.getElementById("commit-file-list");
+        const commitIdFieldDom = document.getElementById("commit-id-field");
 
-            const date = document.createElement("div");
-            date.classList.add("date");
-            txt = document.createTextNode(commit["date"]);
-            date.appendChild(txt);
-            row.appendChild(date);
-            res.push(row);
+        show_detail_loading_wrapper(true);
+        try {
+            var url = `${server}/api/git-commit/${g_selected_commit.id}?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
+            if (g_ignoreWhitespaceCheckbox.checked) {
+                url += "&ignoreWhitespace=1";
+            }
+            const response = await fetch(url);
+            const commit = await response.json();
+            create_commit_detail(commit, detailPanelDom, fileListDom);
+            commitIdFieldDom.innerText = commit.id;
+        } catch (ex) {
+            console.error(ex);
         }
-        commitsListDom.replaceChildren(...res);
-    } catch (ex) {
-        console.error(ex);
+        show_detail_loading_wrapper(false);
     }
 
-    show_commits_loading_wrapper(false);
+    async load_commits_async() {
+        // clear old data.
+        g_commits = null;
+        g_selected_commit = null;
+        const commitsListDom = document.getElementById("gitk-history-content");
+        commitsListDom.replaceChildren();
+        clean_commit_detail();
+
+        show_commits_loading_wrapper(true);
+
+        try {
+            var url = `${server}/api/git-log?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
+            if (g_noMergesCheckbox.checked) {
+                url += "&noMerges=1";
+            }
+            const response = await fetch(url);
+            const commits = g_commits = await response.json();
+            const res = [];
+            for (var i = 0; i < commits.length; ++i) {
+                const commit = commits[i];
+                const row = document.createElement("div");
+                row.setAttribute("id", `commit-${commit.id}`);
+                row.setAttribute("style", `height: ${kLineHight}px`);
+                row.setAttribute("commitid", commit.id);
+                row.addEventListener("click", () => onCommitClick(row));
+                row.commit = commit;
+                row.classList.add("row");
+
+                const graphAndMessage = document.createElement("div");
+                graphAndMessage.classList.add("graph-and-message");
+                graphAndMessage.appendChild(crate_graph(commit, commits));
+                graphAndMessage.appendChild(crate_message(commit));
+                row.appendChild(graphAndMessage);
+
+                const author = document.createElement("div");
+                author.classList.add("author");
+                author.classList.add("oneline");
+                var txt = document.createTextNode(commit["author"]);
+                author.appendChild(txt);
+                row.appendChild(author);
+
+                const date = document.createElement("div");
+                date.classList.add("date");
+                txt = document.createTextNode(commit["date"]);
+                date.appendChild(txt);
+                row.appendChild(date);
+                res.push(row);
+            }
+            commitsListDom.replaceChildren(...res);
+        } catch (ex) {
+            console.error(ex);
+        }
+
+        show_commits_loading_wrapper(false);
+    }
 }

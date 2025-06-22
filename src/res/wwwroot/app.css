@@ -141,8 +141,12 @@ pre {
 
     .options {
         display: flex;
-        justify-content: center;
+        align-items: center;
         height: 100%;
+
+        input {
+            margin-left: 8px;
+        }
     }
 }
 

@@ -303,7 +303,8 @@ void create_detail_header(json& j, git_commit* pCommit)
     j["message"] = create_message_lines(pCommit);
 }
 
-std::string get_git_commit(const std::string& repoPath, const std::string& follow, const std::string& commitId)
+std::string get_git_commit(
+    const std::string& repoPath, const std::string& follow, const std::string& commitId, bool ignoreWhitespace)
 {
     auto pGit = GetSharedGitRepository(repoPath);
 
@@ -322,6 +323,9 @@ std::string get_git_commit(const std::string& repoPath, const std::string& follo
 
     // Get diff
     auto cmd = std::format("cmd /c git show --pretty=format: {}", commitId);
+    if (ignoreWhitespace) {
+        cmd += " -w";
+    }
     if (!follow.empty()) {
         cmd += " -- " + follow;
     }
@@ -477,9 +481,10 @@ static void ProcessGetGitCommitRequest(const httplib::Request& req, httplib::Res
         return;
     }
 
-    auto path = GetHttpQueryParameter(req, "path", "");
     auto commitId = req.path_params.at("commitId");
-    res.set_content(get_git_commit(repo, path, commitId), "application/json");
+    auto path = GetHttpQueryParameter(req, "path", "");
+    auto ignoreWhitespace = GetHttpQueryParameter(req, "ignoreWhitespace", "") == "1";
+    res.set_content(get_git_commit(repo, path, commitId, ignoreWhitespace), "application/json");
 }
 
 /// @brief Start server. This function won't return until the server is stopped (currently, we never stop server).

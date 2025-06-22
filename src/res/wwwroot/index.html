@@ -6,7 +6,7 @@
     <link rel="shortcut icon" href="favicon.svg" type="image/svg">
     <link href="app.css" rel="stylesheet" />
     <script src="version.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js" type="module"></script>
 </head>
 
 <body>
@@ -31,7 +31,10 @@
         </div>
         <div class="toolbar-panel">
             <div style="flex: 1"><span class="label">Commit ID:</span><span id="commit-id-field"></span></div>
-            <div class="options"><input type="checkbox" id="no-merges-checkbox"checked onclick="on_no_merges_selection_changed()">No merges</div>
+            <div class="options">
+                <input is="state-saved-checkbox" id="ignore-whitespace-checkbox" onclick="app.load_commit_async()">Ignore whitespace
+                <input is="state-saved-checkbox" id="no-merges-checkbox" onclick="app.load_commits_async()">No merges
+            </div>
         </div>
         <div class="detail-panel">
             <div class="commit-detail">
