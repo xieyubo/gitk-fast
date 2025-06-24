@@ -322,7 +322,7 @@ std::string get_git_commit(
     create_detail_header(j, pCommit.get());
 
     // Get diff
-    auto cmd = std::format("cmd /c git show --pretty=format: {}", commitId);
+    auto cmd = std::format("git show --pretty=format: {}", commitId);
     if (ignoreWhitespace) {
         cmd += " -w";
     }
@@ -348,7 +348,7 @@ std::string get_git_log(git_repository* repo, const std::string& repoPath, const
 
     auto count = 500u;
     commits.reserve(count);
-    auto cmd = std::format("cmd /c git log -n {} --pretty=format:%H", count);
+    auto cmd = std::format("git log -n {} --pretty=format:%H", count);
     if (noMerges) {
         cmd += " --no-merges";
     }
