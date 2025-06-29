@@ -1,5 +1,6 @@
 module;
 
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -30,10 +31,25 @@ static bool ParseOption(int& i, int argc, char* argv[], const char* key, std::st
     return false;
 }
 
+static bool IsGitId(const std::string& hash)
+{
+    if (hash.length() != 40) {
+        return false;
+    }
+
+    for (auto ch : hash) {
+        if (!std::isxdigit(ch)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 export struct Option {
     int port { kDefaultPort };
     bool serverMode {};
     std::string repoPath { std::filesystem::current_path().string() };
+    std::string commitId {};
     std::string follow {};
     std::string wwwroot {};
     bool printVersion {};
@@ -49,10 +65,22 @@ export struct Option {
                     && !ParseOption(i, argc, argv, "--wwwroot", option.wwwroot)) {
                     throw std::runtime_error { std::format("Unknonw option: {}", argv[i]) };
                 }
-            } else if (option.follow.empty()) {
-                option.follow = std::filesystem::weakly_canonical(argv[i]).string();
             } else {
-                throw std::runtime_error { "Only support one path." };
+                auto str = std::string { argv[i] };
+                if (IsGitId(str)) {
+                    if (option.commitId.empty()) {
+                        option.commitId = std::move(str);
+                    } else {
+                        throw std::runtime_error { "Only support one commit id." };
+                    }
+                } else {
+                    // Treat as follow path.
+                    if (option.follow.empty()) {
+                        option.follow = std::filesystem::weakly_canonical(argv[i]).string();
+                    } else {
+                        throw std::runtime_error { "Only support one path." };
+                    }
+                }
             }
         }
         return option;

@@ -4,6 +4,7 @@ const server = location.origin;
 const queries = new URLSearchParams(location.search);
 const g_repo = queries.get("repo") || "";
 const g_path = queries.get("path") || "";
+const g_commitId = queries.get("commit") || "";
 var g_app;
 var g_ignoreWhitespaceCheckbox;
 var g_noMergesCheckbox;
@@ -323,6 +324,9 @@ class App {
             var url = `${server}/api/git-log?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
             if (g_noMergesCheckbox.checked) {
                 url += "&noMerges=1";
+            }
+            if (g_commitId) {
+                url += `&commit=${g_commitId}`;
             }
             const response = await fetch(url);
             const commits = g_commits = await response.json();

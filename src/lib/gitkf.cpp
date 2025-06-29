@@ -334,7 +334,7 @@ std::string get_git_commit(
     return dump(j);
 }
 
-std::string get_git_log(git_repository* repo, const std::string& repoPath, const std::string& follow, bool noMerges)
+std::string get_git_log(git_repository* repo, const std::string& repoPath, const std::string& follow, bool noMerges, const std::string& commitId)
 {
     avaliable_columns.clear();
     next_avaliable_columnt = 0;
@@ -346,11 +346,14 @@ std::string get_git_log(git_repository* repo, const std::string& repoPath, const
     std::vector<GitCommit> commits;
     std::unordered_map<std::string, int> hashToCommitIndex;
 
-    auto count = 500u;
+    auto count = commitId.empty() ? 500u : 1u;
     commits.reserve(count);
     auto cmd = std::format("git log -n {} --pretty=format:%H", count);
     if (noMerges) {
         cmd += " --no-merges";
+    }
+    if (!commitId.empty()) {
+        cmd += " " + commitId;
     }
     if (!follow.empty()) {
         cmd += " -- " + follow;
@@ -429,11 +432,11 @@ std::string get_git_log(git_repository* repo, const std::string& repoPath, const
     return serialize(commits);
 }
 
-std::string get_git_log(const std::string& repoPath, const std::string& path, bool noMerges)
+std::string get_git_log(const std::string& repoPath, const std::string& path, bool noMerges, const std::string& commitId)
 {
     auto pGit = GetSharedGitRepository(repoPath);
     return get_git_log(pGit->GetRepo(), pGit->GetRepoRoot(),
-        std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(), noMerges);
+        std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(), noMerges, commitId);
 }
 
 static const std::string GetHttpQueryParameter(
@@ -466,10 +469,10 @@ static void ProcessGetGitLogRequest(const httplib::Request& req, httplib::Respon
         res.status = httplib::StatusCode::NotFound_404;
         return;
     }
-
     auto path = GetHttpQueryParameter(req, "path", "");
     auto noMerges = GetHttpQueryParameter(req, "noMerges", "") == "1";
-    res.set_content(get_git_log(repo, path, noMerges), "application/json");
+    auto commitId = GetHttpQueryParameter(req, "commit", "");
+    res.set_content(get_git_log(repo, path, noMerges, commitId), "application/json");
 }
 
 /// @brief Handle get git commit detail request. Request path is: /api/git-commit/{commitId}
@@ -545,6 +548,9 @@ export int gitkf_main(int argc, char* argv[])
         auto url = std::format("http://localhost:{}?repo={}", option.port, option.repoPath);
         if (!option.follow.empty()) {
             url += std::format("&path={}", option.follow);
+        }
+        if (!option.commitId.empty()) {
+            url += std::format("&commit={}", option.commitId);
         }
         OpenUrl(url);
         return 0;
