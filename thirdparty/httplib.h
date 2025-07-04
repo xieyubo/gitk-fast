@@ -1,4 +1,4 @@
-// Get from https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.21.0.zip
+// Get from https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.22.0.zip
 
 //
 //  httplib.h
@@ -10,7 +10,7 @@
 #ifndef CPPHTTPLIB_HTTPLIB_H
 #define CPPHTTPLIB_HTTPLIB_H
 
-#define CPPHTTPLIB_VERSION "0.21.0"
+#define CPPHTTPLIB_VERSION "0.22.0"
 
 /*
  * Configuration
@@ -78,7 +78,7 @@
 
 #ifndef CPPHTTPLIB_IDLE_INTERVAL_USECOND
 #ifdef _WIN32
-#define CPPHTTPLIB_IDLE_INTERVAL_USECOND 10000
+#define CPPHTTPLIB_IDLE_INTERVAL_USECOND 1000
 #else
 #define CPPHTTPLIB_IDLE_INTERVAL_USECOND 0
 #endif
@@ -90,6 +90,10 @@
 
 #ifndef CPPHTTPLIB_HEADER_MAX_LENGTH
 #define CPPHTTPLIB_HEADER_MAX_LENGTH 8192
+#endif
+
+#ifndef CPPHTTPLIB_HEADER_MAX_COUNT
+#define CPPHTTPLIB_HEADER_MAX_COUNT 100
 #endif
 
 #ifndef CPPHTTPLIB_REDIRECT_MAX_COUNT
@@ -4357,6 +4361,8 @@ inline bool read_headers(Stream &strm, Headers &headers) {
   char buf[bufsiz];
   stream_line_reader line_reader(strm, buf, bufsiz);
 
+  size_t header_count = 0;
+
   for (;;) {
     if (!line_reader.getline()) { return false; }
 
@@ -4377,6 +4383,9 @@ inline bool read_headers(Stream &strm, Headers &headers) {
 
     if (line_reader.size() > CPPHTTPLIB_HEADER_MAX_LENGTH) { return false; }
 
+    // Check header count limit
+    if (header_count >= CPPHTTPLIB_HEADER_MAX_COUNT) { return false; }
+
     // Exclude line terminator
     auto end = line_reader.ptr() + line_reader.size() - line_terminator_len;
 
@@ -4386,6 +4395,8 @@ inline bool read_headers(Stream &strm, Headers &headers) {
                       })) {
       return false;
     }
+
+    header_count++;
   }
 
   return true;
@@ -4488,8 +4499,12 @@ inline bool read_content_chunked(Stream &strm, T &x,
   // chunked transfer coding data without the final CRLF.
   if (!line_reader.getline()) { return true; }
 
+  size_t trailer_header_count = 0;
   while (strcmp(line_reader.ptr(), "\r\n") != 0) {
     if (line_reader.size() > CPPHTTPLIB_HEADER_MAX_LENGTH) { return false; }
+
+    // Check trailer header count limit
+    if (trailer_header_count >= CPPHTTPLIB_HEADER_MAX_COUNT) { return false; }
 
     // Exclude line terminator
     constexpr auto line_terminator_len = 2;
@@ -4499,6 +4514,8 @@ inline bool read_content_chunked(Stream &strm, T &x,
                  [&](const std::string &key, const std::string &val) {
                    x.headers.emplace(key, val);
                  });
+
+    trailer_header_count++;
 
     if (!line_reader.getline()) { return false; }
   }
@@ -5331,13 +5348,68 @@ serialize_multipart_formdata(const MultipartFormDataItems &items,
   return body;
 }
 
+inline void coalesce_ranges(Ranges &ranges, size_t content_length) {
+  if (ranges.size() <= 1) return;
+
+  // Sort ranges by start position
+  std::sort(ranges.begin(), ranges.end(),
+            [](const Range &a, const Range &b) { return a.first < b.first; });
+
+  Ranges coalesced;
+  coalesced.reserve(ranges.size());
+
+  for (auto &r : ranges) {
+    auto first_pos = r.first;
+    auto last_pos = r.second;
+
+    // Handle special cases like in range_error
+    if (first_pos == -1 && last_pos == -1) {
+      first_pos = 0;
+      last_pos = static_cast<ssize_t>(content_length);
+    }
+
+    if (first_pos == -1) {
+      first_pos = static_cast<ssize_t>(content_length) - last_pos;
+      last_pos = static_cast<ssize_t>(content_length) - 1;
+    }
+
+    if (last_pos == -1 || last_pos >= static_cast<ssize_t>(content_length)) {
+      last_pos = static_cast<ssize_t>(content_length) - 1;
+    }
+
+    // Skip invalid ranges
+    if (!(0 <= first_pos && first_pos <= last_pos &&
+          last_pos < static_cast<ssize_t>(content_length))) {
+      continue;
+    }
+
+    // Coalesce with previous range if overlapping or adjacent (but not
+    // identical)
+    if (!coalesced.empty()) {
+      auto &prev = coalesced.back();
+      // Check if current range overlaps or is adjacent to previous range
+      // but don't coalesce identical ranges (allow duplicates)
+      if (first_pos <= prev.second + 1 &&
+          !(first_pos == prev.first && last_pos == prev.second)) {
+        // Extend the previous range
+        prev.second = (std::max)(prev.second, last_pos);
+        continue;
+      }
+    }
+
+    // Add new range
+    coalesced.emplace_back(first_pos, last_pos);
+  }
+
+  ranges = std::move(coalesced);
+}
+
 inline bool range_error(Request &req, Response &res) {
   if (!req.ranges.empty() && 200 <= res.status && res.status < 300) {
     ssize_t content_len = static_cast<ssize_t>(
         res.content_length_ ? res.content_length_ : res.body.size());
 
-    ssize_t prev_first_pos = -1;
-    ssize_t prev_last_pos = -1;
+    std::vector<std::pair<ssize_t, ssize_t>> processed_ranges;
     size_t overwrapping_count = 0;
 
     // NOTE: The following Range check is based on '14.2. Range' in RFC 9110
@@ -5380,18 +5452,21 @@ inline bool range_error(Request &req, Response &res) {
         return true;
       }
 
-      // Ranges must be in ascending order
-      if (first_pos <= prev_first_pos) { return true; }
-
       // Request must not have more than two overlapping ranges
-      if (first_pos <= prev_last_pos) {
-        overwrapping_count++;
-        if (overwrapping_count > 2) { return true; }
+      for (const auto &processed_range : processed_ranges) {
+        if (!(last_pos < processed_range.first ||
+              first_pos > processed_range.second)) {
+          overwrapping_count++;
+          if (overwrapping_count > 2) { return true; }
+          break; // Only count once per range
+        }
       }
 
-      prev_first_pos = (std::max)(prev_first_pos, first_pos);
-      prev_last_pos = (std::max)(prev_last_pos, last_pos);
+      processed_ranges.emplace_back(first_pos, last_pos);
     }
+
+    // After validation, coalesce overlapping ranges as per RFC 9110
+    coalesce_ranges(req.ranges, static_cast<size_t>(content_len));
   }
 
   return false;
