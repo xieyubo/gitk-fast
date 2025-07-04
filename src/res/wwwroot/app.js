@@ -5,6 +5,7 @@ const queries = new URLSearchParams(location.search);
 const g_repo = queries.get("repo") || "";
 const g_path = queries.get("path") || "";
 const g_commitId = queries.get("commit") || "";
+const g_author = queries.get("author") || "";
 var g_app;
 var g_ignoreWhitespaceCheckbox;
 var g_noMergesCheckbox;
@@ -327,6 +328,9 @@ class App {
             }
             if (g_commitId) {
                 url += `&commit=${g_commitId}`;
+            }
+            if (g_author) {
+                url += `&author=${g_author}`;
             }
             const response = await fetch(url);
             const commits = g_commits = await response.json();

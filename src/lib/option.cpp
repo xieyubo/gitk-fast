@@ -51,6 +51,7 @@ export struct Option {
     std::string repoPath { std::filesystem::current_path().string() };
     std::string commitId {};
     std::string follow {};
+    std::string author {};
     std::string wwwroot {};
     bool printVersion {};
 
@@ -62,7 +63,8 @@ export struct Option {
                 if (!ParseFlag(i, argv, "--server", option.serverMode) && !ParseFlag(i, argv, "-v", option.printVersion)
                     && !ParseFlag(i, argv, "--version", option.printVersion)
                     && !ParseOption(i, argc, argv, "--repo", option.repoPath)
-                    && !ParseOption(i, argc, argv, "--wwwroot", option.wwwroot)) {
+                    && !ParseOption(i, argc, argv, "--wwwroot", option.wwwroot)
+                    && !ParseOption(i, argc, argv, "--author", option.author)) {
                     throw std::runtime_error { std::format("Unknonw option: {}", argv[i]) };
                 }
             } else {
