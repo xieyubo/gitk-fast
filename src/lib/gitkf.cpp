@@ -320,7 +320,7 @@ void get_git_log(httplib::DataSink& sink, git_repository* repo, const std::strin
     std::vector<GitCommit> commits;
     std::unordered_map<std::string, int> hashToCommitIndex;
 
-    auto count = commitId.empty() ? 500u : 1u;
+    auto count = 500;
     commits.reserve(count);
     auto cmd = std::format("git log -n {} --pretty=format:%H", count);
     if (noMerges) {
