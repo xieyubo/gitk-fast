@@ -32,7 +32,8 @@
         <div class="toolbar-panel">
             <div style="flex: 1"><span class="label">Commit ID:</span><span id="commit-id-field"></span></div>
             <div class="options">
-                <input is="state-saved-checkbox" id="ignore-whitespace-checkbox" onclick="app.load_commit_async()">Ignore whitespace
+                <input is="state-saved-checkbox" id="ignore-whitespace-checkbox"
+                    onclick="app.load_commit_async()">Ignore whitespace
                 <input is="state-saved-checkbox" id="no-merges-checkbox" onclick="app.load_commits_async()">No merges
             </div>
         </div>
@@ -58,8 +59,10 @@
                 <div id="commit-file-list"></div>
             </div>
         </div>
-        <div class="footer">
-            <div id="version-column"></div>
+        <div id="footer" class="footer">
+            <div id="progress-column" class="hidden">(loading)</div>
+            <div id="selection-column"></div>
+            <div id="current-version-column"></div>
         </div>
     </div>
 </body>

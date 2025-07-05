@@ -220,7 +220,17 @@ pre {
     font-size: 14px;
     border-top: 1px solid #848484;
     padding: 4px 16px;
-    flex-flow: row-reverse;
+    justify-content: flex-end;
+    gap: 16px;
+
+    div {
+        border-right: 1px solid #848484;
+        padding-right: 16px;
+    }
+
+    div:last-child {
+        border: none;
+    }
 }
 
 .selected {
@@ -229,6 +239,10 @@ pre {
 
 .hidden {
     visibility: hidden !important;
+}
+
+.in-progress {
+    cursor: progress !important;
 }
 
 .waitting-cover {

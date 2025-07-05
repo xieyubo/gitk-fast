@@ -9,22 +9,26 @@ const g_author = queries.get("author") || "";
 var g_app;
 var g_ignoreWhitespaceCheckbox;
 var g_noMergesCheckbox;
-var g_commits;
-var g_selected_commit;
 
 window.onload = async () => {
     window.app = g_app = new App();
     g_noMergesCheckbox = document.getElementById("no-merges-checkbox");
     g_ignoreWhitespaceCheckbox = document.getElementById("ignore-whitespace-checkbox");
 
-    var verDom = document.getElementById("version-column");
+    var verDom = document.getElementById("current-version-column");
     verDom.innerText = `Current Ver: ${kVersion}`;
+
     fetch("https://raw.githubusercontent.com/xieyubo/gitk-fast/refs/heads/release/VERSION")
-        .then(r => r.text())
-        .then(newVersion => {
-            //if (newVersion != kVersion) {
-            verDom.innerHTML = `Current Ver: ${kVersion} | <a class="clickable-text" href="https://github.com/xieyubo/gitk-fast/releases" target=_blank>New Ver: ${newVersion}</a>`;
-            //}
+        .then(r => {
+            if (r.ok) {
+                r.text().then(newVersion => {
+                    if (newVersion != kVersion) {
+                        var newVerDom = document.createElement("div");
+                        newVerDom.innerHTML = `<a class="clickable-text" href="https://github.com/xieyubo/gitk-fast/releases" target=_blank>New Ver: ${newVersion}</a>`;
+                        document.getElementById("footer").appendChild(newVerDom);
+                    }
+                })
+            }
         });
 
     await g_app.load_commits_async();
@@ -153,7 +157,7 @@ function create_commit_navigation_node(label, commit) {
     span.innerText = commit.id;
     if (document.getElementById(`commit-${commit.id}`)) {
         span.classList.add("clickable-text");
-        span.addEventListener("click", () => select_commit(`commit-${commit.id}`));
+        span.addEventListener("click", () => g_app.select_commit(commit.id));
     }
     dom.appendChild(span);
 
@@ -184,7 +188,7 @@ function create_commit_detail(commit, detailPanelDom, fileListDom) {
         commit.parents.forEach(
             parent => commentsDetailDom.appendChild(create_commit_navigation_node("Parent", parent)));
     }
-    find_children(commit.id).forEach(
+    g_app.find_children(commit.id).forEach(
         child => commentsDetailDom.appendChild(create_commit_navigation_node("Child", child)));
 
     const message = document.createElement("pre");
@@ -227,24 +231,6 @@ function create_commit_detail(commit, detailPanelDom, fileListDom) {
     fileListDom.replaceChildren(...fileDomList);
 }
 
-function select_commit(commitId) {
-    var commitRow = document.getElementById(commitId);
-    if (commitRow) {
-        commitRow.scrollIntoView({ "block": "nearest" });
-        onCommitClick(commitRow);
-    }
-}
-
-async function onCommitClick(row) {
-    if (onCommitClick.lastSelectedRow) {
-        onCommitClick.lastSelectedRow.classList.remove("selected");
-    }
-    row.classList.add("selected");
-    onCommitClick.lastSelectedRow = row;
-    g_selected_commit = row.commit;
-    await g_app.load_commit_async();
-}
-
 function onSelectFile(fileDom) {
     if (onSelectFile.lastSelectedFileDom) {
         onSelectFile.lastSelectedFileDom.classList.remove("selected");
@@ -252,25 +238,6 @@ function onSelectFile(fileDom) {
     fileDom.classList.add("selected");
     onSelectFile.lastSelectedFileDom = fileDom;
     fileDom.detailDom.scrollIntoView();
-}
-
-function find_children(commitId) {
-    if (!g_commits) {
-        return [];
-    }
-
-    var index = g_commits.findIndex(e => e.id == commitId);
-    if (index < -1) {
-        return [];
-    }
-
-    var children = [];
-    g_commits.forEach(e => {
-        if (e.parentIndexes && e.parentIndexes.indexOf(index) >= 0) {
-            children.push(e);
-        }
-    });
-    return children;
 }
 
 function clean_commit_detail() {
@@ -283,38 +250,46 @@ function clean_commit_detail() {
 }
 
 class App {
-    async load_commit_async() {
-        if (!g_selected_commit) {
-            return;
+    find_children(commitId) {
+        var index = this.#commits.findIndex(e => e.id == commitId);
+        if (index < -1) {
+            return [];
         }
 
-        // clear old data.
-        clean_commit_detail();
-
-        const detailPanelDom = document.getElementById("commit-detail");
-        const fileListDom = document.getElementById("commit-file-list");
-        const commitIdFieldDom = document.getElementById("commit-id-field");
-
-        show_detail_loading_wrapper(true);
-        try {
-            var url = `${server}/api/git-commit/${g_selected_commit.id}?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
-            if (g_ignoreWhitespaceCheckbox.checked) {
-                url += "&ignoreWhitespace=1";
+        var children = [];
+        this.#commits.forEach(e => {
+            if (e.parentIndexes && e.parentIndexes.indexOf(index) >= 0) {
+                children.push(e);
             }
-            const response = await fetch(url);
-            const commit = await response.json();
-            create_commit_detail(commit, detailPanelDom, fileListDom);
-            commitIdFieldDom.innerText = commit.id;
-        } catch (ex) {
-            console.error(ex);
+        });
+        return children;
+    }
+
+    select_commit(commitId) {
+        // clean last selection.
+        if (this.#last_selected_row) {
+            this.#last_selected_row.classList.remove("selected");
+            this.#selectIndex = 0;
         }
-        show_detail_loading_wrapper(false);
+
+        if (commitId) {
+            this.#selectIndex = this.#commits.findIndex(c => c.id == commitId) + 1;
+            var commitRow = document.getElementById(`commit-${commitId}`);
+            if (commitRow) {
+                commitRow.scrollIntoView({ "block": "nearest" });
+
+                commitRow.classList.add("selected");
+                this.#last_selected_row = commitRow;
+                this.#load_commit_async(commitId);
+            }
+        }
+        this.#update_selection_status();
     }
 
     async load_commits_async() {
         // clear old data.
-        g_commits = null;
-        g_selected_commit = null;
+        this.#commits = [];
+        this.select_commit(null);
         const commitsListDom = document.getElementById("gitk-history-content");
         commitsListDom.replaceChildren();
         clean_commit_detail();
@@ -332,44 +307,112 @@ class App {
             if (g_author) {
                 url += `&author=${g_author}`;
             }
-            const response = await fetch(url);
-            const commits = g_commits = await response.json();
-            const res = [];
-            for (var i = 0; i < commits.length; ++i) {
-                const commit = commits[i];
-                const row = document.createElement("div");
-                row.setAttribute("id", `commit-${commit.id}`);
-                row.setAttribute("style", `height: ${kLineHight}px`);
-                row.setAttribute("commitid", commit.id);
-                row.addEventListener("click", () => onCommitClick(row));
-                row.commit = commit;
-                row.classList.add("row");
+            commitsListDom.replaceChildren();
+            commitsListDom.classList.add("in-progress");
 
-                const graphAndMessage = document.createElement("div");
-                graphAndMessage.classList.add("graph-and-message");
-                graphAndMessage.appendChild(crate_graph(commit, commits));
-                graphAndMessage.appendChild(crate_message(commit));
-                row.appendChild(graphAndMessage);
+            const evtSource = new EventSource(url);
+            const progressStatus = document.getElementById("progress-column");
+            progressStatus.classList.remove("hidden");
 
-                const author = document.createElement("div");
-                author.classList.add("author");
-                author.classList.add("oneline");
-                var txt = document.createTextNode(commit["author"]);
-                author.appendChild(txt);
-                row.appendChild(author);
+            const closeEventSource = () => {
+                evtSource.close();
+                progressStatus.classList.add("hidden");
+                commitsListDom.classList.remove("in-progress");
+            };
 
-                const date = document.createElement("div");
-                date.classList.add("date");
-                txt = document.createTextNode(commit["date"]);
-                date.appendChild(txt);
-                row.appendChild(date);
-                res.push(row);
+            evtSource.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                const commits = data.commits;
+                if (commits.length == 0) {
+                    closeEventSource();
+                    return;
+                }
+
+                this.#commits.push(...commits);
+                for (var i = 0; i < data.graphs.length; ++i) {
+                    this.#commits[i] = { ...this.#commits[i], ...data.graphs[i] };
+                }
+                for (var i = 0; i < commits.length; ++i) {
+                    const commit = commits[i];
+                    const row = document.createElement("div");
+                    row.setAttribute("id", `commit-${commit.id}`);
+                    row.setAttribute("style", `height: ${kLineHight}px`);
+                    row.setAttribute("commitid", commit.id);
+                    row.addEventListener("click", () => this.select_commit(commit.id));
+                    row.commit = commit;
+                    row.classList.add("row");
+
+                    const graphAndMessage = document.createElement("div");
+                    graphAndMessage.classList.add("graph-and-message");
+                    const graph = document.createElement("div");
+                    graph.setAttribute("id", `commit-${commit.id}-graph`);
+                    graphAndMessage.appendChild(graph);
+                    graphAndMessage.appendChild(crate_message(commit));
+                    row.appendChild(graphAndMessage);
+
+                    const author = document.createElement("div");
+                    author.classList.add("author");
+                    author.classList.add("oneline");
+                    var txt = document.createTextNode(commit["author"]);
+                    author.appendChild(txt);
+                    row.appendChild(author);
+
+                    const date = document.createElement("div");
+                    date.classList.add("date");
+                    txt = document.createTextNode(commit["date"]);
+                    date.appendChild(txt);
+                    row.appendChild(date);
+                    commitsListDom.appendChild(row);
+                }
+
+                // Create graph data.
+                for (var i = 0; i < this.#commits.length; ++i) {
+                    var commit = this.#commits[i];
+                    var graphDiv = document.getElementById(`commit-${commit.id}-graph`);
+                    graphDiv.replaceChildren(crate_graph(commit, this.#commits));
+                }
+
+                this.#update_selection_status();
             }
-            commitsListDom.replaceChildren(...res);
+            evtSource.onerror = (e) => {
+                closeEventSource();
+            }
         } catch (ex) {
             console.error(ex);
         }
 
         show_commits_loading_wrapper(false);
     }
+
+    async #load_commit_async(commitId) {
+        // clear old data.
+        clean_commit_detail();
+
+        const detailPanelDom = document.getElementById("commit-detail");
+        const fileListDom = document.getElementById("commit-file-list");
+        const commitIdFieldDom = document.getElementById("commit-id-field");
+
+        show_detail_loading_wrapper(true);
+        try {
+            var url = `${server}/api/git-commit/${commitId}?repo=${encodeURI(g_repo)}&path=${encodeURI(g_path)}`;
+            if (g_ignoreWhitespaceCheckbox.checked) {
+                url += "&ignoreWhitespace=1";
+            }
+            const response = await fetch(url);
+            const commit = await response.json();
+            create_commit_detail(commit, detailPanelDom, fileListDom);
+            commitIdFieldDom.innerText = commit.id;
+        } catch (ex) {
+            console.error(ex);
+        }
+        show_detail_loading_wrapper(false);
+    }
+
+    #update_selection_status() {
+        document.getElementById("selection-column").innerText = `${this.#selectIndex} / ${this.#commits.length}`;
+    }
+
+    #commits = [];
+    #selectIndex = 0;
+    #last_selected_row;
 }

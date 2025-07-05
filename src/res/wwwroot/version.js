@@ -1,1 +1,1 @@
-const kVersion = "0.0.0-preview-5";
+const kVersion = "0.0.0-preview-7";

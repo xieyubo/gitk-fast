@@ -18,6 +18,7 @@ export module gitkf:gitkf;
 import :client_exception;
 import :git_smart_pointer;
 import :git_repository;
+import :line_reader;
 import :option;
 import :platform_utils;
 
@@ -35,10 +36,6 @@ struct GitCommit {
     int minReservedColumn {};
     int maxReservedColumn { -1 };
 };
-
-std::vector<int> avaliable_columns;
-int next_avaliable_columnt {};
-int max_possible_columnt {};
 
 template <size_t N>
 std::string GitHashToString(const unsigned char (&hash)[N])
@@ -64,28 +61,6 @@ git_oid StringToGitHash(const std::string& hash)
     return oid;
 }
 
-int get_avaliable_column()
-{
-    if (avaliable_columns.empty()) {
-        auto column = next_avaliable_columnt++;
-        max_possible_columnt = std::max(max_possible_columnt, column);
-        return column;
-    } else {
-        auto i = *avaliable_columns.rbegin();
-        avaliable_columns.pop_back();
-        return i;
-    }
-}
-
-void free_column(int column)
-{
-    if (column == next_avaliable_columnt - 1) {
-        --next_avaliable_columnt;
-    } else {
-        avaliable_columns.push_back(column);
-    }
-}
-
 json serialize(const git_commit* pCommit)
 {
     auto message = std::string_view { git_commit_message(pCommit) };
@@ -102,9 +77,9 @@ json serialize(const git_commit* pCommit)
     return r;
 }
 
-json serialize(const GitCommit& commit)
+json serialize(const GitCommit& commit, bool graphInfoOnly)
 {
-    auto r = serialize(commit.commit);
+    auto r = graphInfoOnly ? json {} : serialize(commit.commit);
     r["id"] = commit.id;
     r["column"] = commit.column;
     r["parentIndexes"] = { commit.parentIndexes[0], commit.parentIndexes[1] };
@@ -119,11 +94,12 @@ static std::string dump(const json& json)
         /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false, /*error_handler=*/json::error_handler_t::replace);
 }
 
-std::string serialize(const std::vector<GitCommit>& commits)
+std::string serialize(
+    std::vector<GitCommit>::const_iterator begin, std::vector<GitCommit>::const_iterator end, bool graphInfoOnly)
 {
     json j;
-    for (const auto& commit : commits) {
-        j.push_back(serialize(commit));
+    for (auto it = begin; it != end; ++it) {
+        j.push_back(serialize(*it, graphInfoOnly));
     }
     return dump(j);
 }
@@ -334,12 +310,9 @@ std::string get_git_commit(
     return dump(j);
 }
 
-std::string get_git_log(git_repository* repo, const std::string& repoPath, const std::string& follow, bool noMerges,
-    const std::string& commitId, const std::string& author)
+void get_git_log(httplib::DataSink& sink, git_repository* repo, const std::string& repoPath, const std::string& follow,
+    bool noMerges, const std::string& commitId, const std::string& author)
 {
-    avaliable_columns.clear();
-    next_avaliable_columnt = 0;
-
     git_revwalk* walk {};
     auto r = git_revwalk_new(&walk, repo);
     // git_revwalk_sorting(walk, GIT_SORT_TIME);
@@ -362,85 +335,140 @@ std::string get_git_log(git_repository* repo, const std::string& repoPath, const
     if (!follow.empty()) {
         cmd += " -- " + follow;
     }
-    auto hashListStr = ExternRun(cmd, repoPath.c_str());
-    std::istringstream in { std::move(hashListStr) };
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.empty()) {
-            continue;
+
+    std::vector<int> avaliable_columns;
+    int next_avaliable_columnt {};
+    int max_possible_columnt {};
+    auto lineReader = LineReader {};
+    auto get_avaliable_column = [&] {
+        if (avaliable_columns.empty()) {
+            auto column = next_avaliable_columnt++;
+            max_possible_columnt = std::max(max_possible_columnt, column);
+            return column;
+        } else {
+            auto i = *avaliable_columns.rbegin();
+            avaliable_columns.pop_back();
+            return i;
+        }
+    };
+
+    auto free_column = [&](int column) {
+        if (column == next_avaliable_columnt - 1) {
+            --next_avaliable_columnt;
+        } else {
+            avaliable_columns.push_back(column);
+        }
+    };
+
+    auto processLines = [&]() {
+        size_t startPos = commits.size();
+        while (auto pLine = lineReader.GetLine()) {
+            if (pLine->empty()) {
+                continue;
+            }
+
+            git_commit* commit {};
+            auto oid = StringToGitHash(*pLine);
+            git_commit_lookup(&commit, repo, &oid);
+            GitCommit v {};
+            auto* poid = git_commit_id(commit);
+            v.id = GitHashToString(poid->id);
+            v.commit = commit;
+            commits.emplace_back(std::move(v));
+            hashToCommitIndex.emplace(commits.rbegin()->id, (int)commits.size() - 1);
         }
 
-        git_commit* commit {};
-        auto oid = StringToGitHash(line);
-        git_commit_lookup(&commit, repo, &oid);
-        GitCommit v {};
-        auto* poid = git_commit_id(commit);
-        v.id = GitHashToString(poid->id);
-        v.commit = commit;
-        commits.emplace_back(std::move(v));
-        hashToCommitIndex.emplace(commits.rbegin()->id, (int)commits.size() - 1);
-    }
-
-    for (auto& commit : commits) {
-        if (commit.column == -1) {
-            commit.column = get_avaliable_column();
+        avaliable_columns.clear();
+        next_avaliable_columnt = 0;
+        for (auto& commit : commits) {
+            commit.column = -1;
+            commit.parentIndexes[0] = kNoParent;
+            commit.parentIndexes[1] = kNoParent;
+            commit.minReservedColumn = 0;
+            commit.maxReservedColumn = -1;
         }
-        auto parentCount = git_commit_parentcount(commit.commit);
-        for (auto i = 0u; i < parentCount; ++i) {
-            auto parentOid = git_commit_parent_id(commit.commit, i);
-            auto it = hashToCommitIndex.find(GitHashToString(parentOid->id));
-            if (it != hashToCommitIndex.end()) {
-                auto& parent = commits[it->second];
-                if (parent.column == -1) {
-                    if (commit.parentIndexes[0] < 0 || commits[commit.parentIndexes[0]].column != commit.column) {
-                        parent.column = commit.column;
-                    } else {
-                        parent.column = get_avaliable_column();
+        for (auto& commit : commits) {
+            if (commit.column < 0) {
+                commit.column = get_avaliable_column();
+            }
+            auto parentCount = git_commit_parentcount(commit.commit);
+            for (auto i = 0u; i < parentCount; ++i) {
+                auto parentOid = git_commit_parent_id(commit.commit, i);
+                auto it = hashToCommitIndex.find(GitHashToString(parentOid->id));
+                if (it != hashToCommitIndex.end()) {
+                    auto& parent = commits[it->second];
+                    if (parent.column == -1) {
+                        if (commit.parentIndexes[0] < 0 || commits[commit.parentIndexes[0]].column != commit.column) {
+                            parent.column = commit.column;
+                        } else {
+                            parent.column = get_avaliable_column();
+                        }
                     }
+                    commit.parentIndexes[i] = it->second;
+                } else {
+                    commit.parentIndexes[i] = kNotInTheRange;
                 }
-                commit.parentIndexes[i] = it->second;
-            } else {
-                commit.parentIndexes[i] = kNotInTheRange;
+            }
+            commit.maxReservedColumn = next_avaliable_columnt - 1;
+
+            if ((commit.parentIndexes[0] < 0 || commits[commit.parentIndexes[0]].column != commit.column)
+                && (commit.parentIndexes[1] < 0 || commits[commit.parentIndexes[1]].column != commit.column)) {
+                free_column(commit.column);
             }
         }
-        commit.maxReservedColumn = next_avaliable_columnt - 1;
 
-        if ((commit.parentIndexes[0] < 0 || commits[commit.parentIndexes[0]].column != commit.column)
-            && (commit.parentIndexes[1] < 0 || commits[commit.parentIndexes[1]].column != commit.column)) {
-            free_column(commit.column);
+        std::vector<int> maxReservedColumnTracker(max_possible_columnt + 1);
+        for (auto i = 0u; i < commits.size(); ++i) {
+            maxReservedColumnTracker[commits[i].column] = i;
         }
-    }
 
-    std::vector<int> maxReservedColumnTracker(max_possible_columnt + 1);
-    for (auto i = 0u; i < commits.size(); ++i) {
-        maxReservedColumnTracker[commits[i].column] = i;
-    }
-
-    for (auto i = 0u; i < commits.size(); ++i) {
-        auto& commit = commits[i];
-        while (commit.minReservedColumn < commit.column) {
-            if (maxReservedColumnTracker[commit.minReservedColumn] < i) {
-                ++commit.minReservedColumn;
-            } else {
-                break;
+        for (auto i = 0u; i < commits.size(); ++i) {
+            auto& commit = commits[i];
+            while (commit.minReservedColumn < commit.column) {
+                if (maxReservedColumnTracker[commit.minReservedColumn] < i) {
+                    ++commit.minReservedColumn;
+                } else {
+                    break;
+                }
+            }
+            while (commit.maxReservedColumn > commit.column) {
+                if (maxReservedColumnTracker[commit.maxReservedColumn] < i) {
+                    --commit.maxReservedColumn;
+                } else {
+                    break;
+                }
             }
         }
-        while (commit.maxReservedColumn > commit.column) {
-            if (maxReservedColumnTracker[commit.maxReservedColumn] < i) {
-                --commit.maxReservedColumn;
-            } else {
-                break;
-            }
+
+        if (startPos < commits.size()) {
+            auto commitsData = serialize(commits.begin() + startPos, commits.end(), /*graphInfoOnly=*/false);
+            auto graphData = serialize(commits.begin(), commits.end(), /*graphInfoOnly=*/true);
+            auto event = std::format("data: {{\"commits\": {}, \"graphs\": {}}}\n\n", commitsData, graphData);
+            return sink.write(event.c_str(), event.size());
+        } else {
+            return true;
         }
-    }
-    return serialize(commits);
+    };
+
+    ExternRun(cmd, repoPath.c_str(), [&](char* data, size_t size) {
+        lineReader.Append(data, size);
+        return processLines();
+    });
+
+    // Process the last line which may not contains \n;
+    lineReader.Append("\n", 2);
+    processLines();
+
+    // Send end data.
+    auto event = std::string { "data: {\"commits\": [], \"graphs\": []}\n\n" };
+    sink.write(event.c_str(), event.size());
 }
 
-std::string get_git_log(const std::string& repoPath, const std::string& path, bool noMerges,
+void get_git_log(httplib::DataSink& sink, const std::string& repoPath, const std::string& path, bool noMerges,
     const std::string& commitId, const std::string& author)
 {
     auto pGit = GetSharedGitRepository(repoPath);
-    return get_git_log(pGit->GetRepo(), pGit->GetRepoRoot(),
+    get_git_log(sink, pGit->GetRepo(), pGit->GetRepoRoot(),
         std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(), noMerges, commitId, author);
 }
 
@@ -478,7 +506,12 @@ static void ProcessGetGitLogRequest(const httplib::Request& req, httplib::Respon
     auto noMerges = GetHttpQueryParameter(req, "noMerges", "") == "1";
     auto commitId = GetHttpQueryParameter(req, "commit", "");
     auto author = GetHttpQueryParameter(req, "author", "");
-    res.set_content(get_git_log(repo, path, noMerges, commitId, author), "application/json");
+    res.set_content_provider("text/event-stream",
+        [repo = std::move(repo), path = std::move(path), noMerges = std::move(noMerges), commitId = std::move(commitId),
+            author = std::move(author)](size_t offset, httplib::DataSink& sink) {
+            get_git_log(sink, repo, path, noMerges, commitId, author);
+            return false;
+        });
 }
 
 /// @brief Handle get git commit detail request. Request path is: /api/git-commit/{commitId}

@@ -16,6 +16,7 @@ target_sources(gitkf_lib PUBLIC FILE_SET CXX_MODULES FILES
     git_repository.cpp
     git_smart_pointer.cpp
     gitkf.cpp
+    line_reader.cpp
     module.cpp
     option.cpp
     ring_buffer.cpp

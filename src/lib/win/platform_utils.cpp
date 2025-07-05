@@ -2,6 +2,7 @@ module;
 
 #include <array>
 #include <format>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -25,13 +26,13 @@ export std::string get_current_app_full_path()
     }
 }
 
-export std::string ExternRun(const std::string& commandLine, const char* workingDir)
+export void ExternRun(
+    const std::string& commandLine, const char* workingDir, const std::function<bool(char*, size_t)>& onData)
 {
     STARTUPINFOA si { .cb = sizeof(si) };
     PROCESS_INFORMATION pi {};
     auto pReadHandle = std::unique_ptr<void, decltype(&CloseHandle)> { nullptr, &CloseHandle };
     auto pWriteHandle = std::unique_ptr<void, decltype(&CloseHandle)> { nullptr, &CloseHandle };
-    std::string output {};
 
     // Create a pipe for the child process's stdout.
     SECURITY_ATTRIBUTES sa {
@@ -66,8 +67,10 @@ export std::string ExternRun(const std::string& commandLine, const char* working
         if (!::ReadFile(pReadHandle.get(), buffer.data(), buffer.size(), &readed, /*lpOoverlapped=*/nullptr)
             || !readed) {
             break;
-        } else {
-            output.append(buffer.data(), readed);
+        } else if (!onData(buffer.data(), readed)) {
+            // Don't need continue, kill the process.
+            TerminateProcess(pi.hProcess, /*uExitcode=*/0);
+            break;
         }
     }
 
@@ -81,10 +84,17 @@ export std::string ExternRun(const std::string& commandLine, const char* working
     ::CloseHandle(pi.hProcess);
 
     if (exitCode) {
-        throw std::runtime_error { std::format(
-            "Command '{}' failed, output: {}, exit code: {}.", commandLine, output, exitCode) };
+        throw std::runtime_error { std::format("Command '{}' failed, exit code: {}.", commandLine, exitCode) };
     }
+}
 
+export std::string ExternRun(const std::string& commandLine, const char* workingDir)
+{
+    std::string output {};
+    ExternRun(commandLine, workingDir, [&output](char* data, size_t size) {
+        output.append(data, size);
+        return true;
+    });
     return output;
 }
 
