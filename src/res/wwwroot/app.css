@@ -43,6 +43,34 @@ pre {
     cursor: pointer;
 }
 
+.context-menu {
+    position: absolute;
+    z-index: 99;
+    background-color: #fff;
+    color: #000;
+    box-shadow: 0 3px 5px #1233, 0 5px 17px #0003;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    user-select: none;
+
+    ul {
+        background-color: hls(203, 7%, 92%);
+        padding: 8px;
+        margin: 0;
+        list-style: none;
+        gap: 2px;
+
+        li {
+            padding: 8px 12px;
+            border-radius: 5px;
+
+            &:hover {
+                background-color: hsl(200, 7%, 84%);
+            }
+        }
+    }
+}
+
 .history-panel {
     display: flex;
     flex: 1;

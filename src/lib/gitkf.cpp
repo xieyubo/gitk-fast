@@ -61,6 +61,14 @@ git_oid StringToGitHash(const std::string& hash)
     return oid;
 }
 
+json serialize(const git_signature& signature)
+{
+    json r;
+    r["name"] = signature.name;
+    r["email"] = signature.email;
+    return r;
+}
+
 json serialize(const git_commit* pCommit)
 {
     auto message = std::string_view { git_commit_message(pCommit) };
@@ -71,7 +79,7 @@ json serialize(const git_commit* pCommit)
 
     json r;
     r["summary"] = firstLineMessage;
-    r["author"] = std::format("{} <{}>", pSignature->name, pSignature->email);
+    r["author"] = serialize(*pSignature);
     r["date"] = std::format("{}-{:02}-{:02} {:02}:{:02}:{:02}", pTime->tm_year + 1900, pTime->tm_mon + 1,
         pTime->tm_mday, pTime->tm_hour, pTime->tm_min, pTime->tm_sec);
     return r;
@@ -311,7 +319,7 @@ std::string get_git_commit(
 }
 
 void get_git_log(httplib::DataSink& sink, git_repository* repo, const std::string& repoPath, const std::string& follow,
-    bool noMerges, const std::string& commitId, const std::string& author)
+    bool noMerges, const std::string& commitId, const std::vector<std::string>& authors)
 {
     git_revwalk* walk {};
     auto r = git_revwalk_new(&walk, repo);
@@ -329,8 +337,8 @@ void get_git_log(httplib::DataSink& sink, git_repository* repo, const std::strin
     if (!commitId.empty()) {
         cmd += " " + commitId;
     }
-    if (!author.empty()) {
-        cmd += " --author " + author;
+    for (const auto& author : authors) {
+        cmd += std::format(" --author \"{}\"", author);
     }
     if (!follow.empty()) {
         cmd += " -- " + follow;
@@ -465,11 +473,11 @@ void get_git_log(httplib::DataSink& sink, git_repository* repo, const std::strin
 }
 
 void get_git_log(httplib::DataSink& sink, const std::string& repoPath, const std::string& path, bool noMerges,
-    const std::string& commitId, const std::string& author)
+    const std::string& commitId, const std::vector<std::string>& authors)
 {
     auto pGit = GetSharedGitRepository(repoPath);
     get_git_log(sink, pGit->GetRepo(), pGit->GetRepoRoot(),
-        std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(), noMerges, commitId, author);
+        std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(), noMerges, commitId, authors);
 }
 
 static const std::string GetHttpQueryParameter(
@@ -477,6 +485,16 @@ static const std::string GetHttpQueryParameter(
 {
     auto it = req.params.find(key);
     return it == req.params.end() ? std::move(defaultValue) : it->second;
+}
+
+static std::vector<std::string> GetHttpQueryParameters(const httplib::Request& req, const std::string& key)
+{
+    std::vector<std::string> res {};
+    auto values = req.params.equal_range(key);
+    for (auto it = values.first; it != values.second; ++it) {
+        res.emplace_back(it->second);
+    }
+    return res;
 }
 
 /// @brief Process static file request handler. If the file is not embedded, return Unhandled so that the request
@@ -505,11 +523,11 @@ static void ProcessGetGitLogRequest(const httplib::Request& req, httplib::Respon
     auto path = GetHttpQueryParameter(req, "path", "");
     auto noMerges = GetHttpQueryParameter(req, "noMerges", "") == "1";
     auto commitId = GetHttpQueryParameter(req, "commit", "");
-    auto author = GetHttpQueryParameter(req, "author", "");
+    auto authors = GetHttpQueryParameters(req, "author");
     res.set_content_provider("text/event-stream",
         [repo = std::move(repo), path = std::move(path), noMerges = std::move(noMerges), commitId = std::move(commitId),
-            author = std::move(author)](size_t offset, httplib::DataSink& sink) {
-            get_git_log(sink, repo, path, noMerges, commitId, author);
+            authors = std::move(authors)](size_t offset, httplib::DataSink& sink) {
+            get_git_log(sink, repo, path, noMerges, commitId, authors);
             return false;
         });
 }
@@ -591,8 +609,8 @@ export int gitkf_main(int argc, char* argv[])
         if (!option.commitId.empty()) {
             url += std::format("&commit={}", option.commitId);
         }
-        if (!option.author.empty()) {
-            url += std::format("&author={}", option.author);
+        for (const auto& author : option.authors) {
+            url += std::format("&author={}", author);
         }
         OpenUrl(url);
         return 0;

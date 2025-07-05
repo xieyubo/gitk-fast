@@ -31,6 +31,17 @@ static bool ParseOption(int& i, int argc, char* argv[], const char* key, std::st
     return false;
 }
 
+template <typename T>
+bool ParseOptions(int& i, int argc, char* argv[], const char* key, std::vector<T>& vals)
+{
+    T val {};
+    if (ParseOption(i, argc, argv, key, val)) {
+        vals.emplace_back(std::move(val));
+        return true;
+    }
+    return false;
+}
+
 static bool IsGitId(const std::string& hash)
 {
     if (hash.length() != 40) {
@@ -51,7 +62,7 @@ export struct Option {
     std::string repoPath { std::filesystem::current_path().string() };
     std::string commitId {};
     std::string follow {};
-    std::string author {};
+    std::vector<std::string> authors {};
     std::string wwwroot {};
     bool printVersion {};
 
@@ -64,7 +75,7 @@ export struct Option {
                     && !ParseFlag(i, argv, "--version", option.printVersion)
                     && !ParseOption(i, argc, argv, "--repo", option.repoPath)
                     && !ParseOption(i, argc, argv, "--wwwroot", option.wwwroot)
-                    && !ParseOption(i, argc, argv, "--author", option.author)) {
+                    && !ParseOptions<std::string>(i, argc, argv, "--author", option.authors)) {
                     throw std::runtime_error { std::format("Unknonw option: {}", argv[i]) };
                 }
             } else {

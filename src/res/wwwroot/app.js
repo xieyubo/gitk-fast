@@ -5,7 +5,7 @@ const queries = new URLSearchParams(location.search);
 const g_repo = queries.get("repo") || "";
 const g_path = queries.get("path") || "";
 const g_commitId = queries.get("commit") || "";
-const g_author = queries.get("author") || "";
+const g_authors = queries.getAll("author");
 var g_app;
 var g_ignoreWhitespaceCheckbox;
 var g_noMergesCheckbox;
@@ -33,6 +33,10 @@ window.onload = async () => {
 
     await g_app.load_commits_async();
 }
+
+window.onclick = () => {
+    document.getElementById("author-context-menu").classList.add("hidden");
+};
 
 const kColumnColors
     = [
@@ -286,6 +290,19 @@ class App {
         this.#update_selection_status();
     }
 
+    show_author_commits_clicked(newWindow) {
+        const menu = document.getElementById('author-context-menu');
+        const search = `repo=${g_repo}&path=${g_path}&author=${menu.author}`;
+        if (!newWindow) {
+            location.search = search;
+        } else {
+            var url = new URL(location);
+            url.pathname = "/";
+            url.search = search;
+            window.open(url, "_blank");
+        }
+    }
+
     async load_commits_async() {
         // clear old data.
         this.#commits = [];
@@ -304,9 +321,7 @@ class App {
             if (g_commitId) {
                 url += `&commit=${g_commitId}`;
             }
-            if (g_author) {
-                url += `&author=${g_author}`;
-            }
+            g_authors.forEach(author => url += `&author=${author}`);
             commitsListDom.replaceChildren();
             commitsListDom.classList.add("in-progress");
 
@@ -353,8 +368,21 @@ class App {
                     const author = document.createElement("div");
                     author.classList.add("author");
                     author.classList.add("oneline");
-                    var txt = document.createTextNode(commit["author"]);
+                    var txt = document.createTextNode(`${commit.author.name} <${commit.author.email}>`);
                     author.appendChild(txt);
+                    author.addEventListener("contextmenu", (e) => {
+                        if (this.#last_selected_row == row) {
+                            const emailOrName = row.commit.author.email || row.commit.author.name;
+                            if (emailOrName) {
+                                e.preventDefault();
+                                const menu = document.getElementById('author-context-menu');
+                                menu.author = emailOrName;
+                                menu.style.left = e.pageX + 'px';
+                                menu.style.top = e.pageY + 'px';
+                                menu.classList.remove('hidden');
+                            }
+                        }
+                    });
                     row.appendChild(author);
 
                     const date = document.createElement("div");
