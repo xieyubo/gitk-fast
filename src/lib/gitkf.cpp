@@ -30,25 +30,13 @@ const std::string_view kPatchFileDiffHeaderLine = "diff --git a/";
 
 struct GitCommit {
     std::string id {};
+    std::vector<GitRef*> refs {};
     git_commit* commit {};
     int column { -1 };
     int parentIndexes[2] = { kNoParent, kNoParent };
     int minReservedColumn {};
     int maxReservedColumn { -1 };
 };
-
-template <size_t N>
-std::string GitHashToString(const unsigned char (&hash)[N])
-{
-    static const char kHex[] = "0123456789abcdef";
-    std::string res(40, '\0');
-    auto* pData = res.data();
-    for (auto ch : hash) {
-        *pData++ = kHex[ch >> 4];
-        *pData++ = kHex[ch & 0xf];
-    }
-    return res;
-}
 
 git_oid StringToGitHash(const std::string& hash)
 {
@@ -85,6 +73,16 @@ json serialize(const git_commit* pCommit)
     return r;
 }
 
+json serialize(const GitRef* pRef)
+{
+    json r {};
+    r["name"] = pRef->name;
+    r["isTag"] = pRef->isTag;
+    r["isBranch"] = pRef->isBranch;
+    r["isRemote"] = pRef->isRemote;
+    return r;
+}
+
 json serialize(const GitCommit& commit, bool graphInfoOnly)
 {
     auto r = graphInfoOnly ? json {} : serialize(commit.commit);
@@ -93,6 +91,14 @@ json serialize(const GitCommit& commit, bool graphInfoOnly)
     r["parentIndexes"] = { commit.parentIndexes[0], commit.parentIndexes[1] };
     r["minReservedColumn"] = commit.minReservedColumn;
     r["maxReservedColumn"] = commit.maxReservedColumn;
+
+    std::vector<json> refs;
+    for (const auto* pRef : commit.refs) {
+        refs.emplace_back(serialize(pRef));
+    }
+    if (!refs.empty()) {
+        r["refs"] = std::move(refs);
+    }
     return r;
 }
 
@@ -318,13 +324,12 @@ std::string get_git_commit(
     return dump(j);
 }
 
-void get_git_log(httplib::DataSink& sink, git_repository* repo, const std::string& repoPath, const std::string& follow,
+void get_git_log(httplib::DataSink& sink, GitRepository& repo, const std::string& repoPath, const std::string& follow,
     bool noMerges, const std::string& commitId, const std::vector<std::string>& authors)
 {
-    git_revwalk* walk {};
-    auto r = git_revwalk_new(&walk, repo);
-    // git_revwalk_sorting(walk, GIT_SORT_TIME);
-    git_revwalk_push_head(walk);
+    // Read all refs.
+    auto refs = repo.GetRefs();
+
     std::vector<GitCommit> commits;
     std::unordered_map<std::string, int> hashToCommitIndex;
 
@@ -377,11 +382,15 @@ void get_git_log(httplib::DataSink& sink, git_repository* repo, const std::strin
 
             git_commit* commit {};
             auto oid = StringToGitHash(*pLine);
-            git_commit_lookup(&commit, repo, &oid);
+            git_commit_lookup(&commit, repo.Get(), &oid);
             GitCommit v {};
             auto* poid = git_commit_id(commit);
             v.id = GitHashToString(poid->id);
             v.commit = commit;
+            auto refsIt = refs.equal_range(v.id);
+            for (auto it = refsIt.first; it != refsIt.second; ++it) {
+                v.refs.emplace_back(&it->second);
+            }
             commits.emplace_back(std::move(v));
             hashToCommitIndex.emplace(commits.rbegin()->id, (int)commits.size() - 1);
         }
@@ -476,8 +485,8 @@ void get_git_log(httplib::DataSink& sink, const std::string& repoPath, const std
     const std::string& commitId, const std::vector<std::string>& authors)
 {
     auto pGit = GetSharedGitRepository(repoPath);
-    get_git_log(sink, pGit->GetRepo(), pGit->GetRepoRoot(),
-        std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(), noMerges, commitId, authors);
+    get_git_log(sink, *pGit, pGit->GetRepoRoot(), std::filesystem::relative(path, pGit->GetRepoWorkDir()).string(),
+        noMerges, commitId, authors);
 }
 
 static const std::string GetHttpQueryParameter(

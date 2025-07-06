@@ -147,6 +147,24 @@ function crate_graph(commit, commits) {
 function crate_message(commit) {
     const message = document.createElement("div");
     message.classList.add("message");
+
+    if (commit.refs) {
+        commit.refs.forEach(ref => {
+            const span = document.createElement("span");
+            span.classList.add("ref");
+            if (ref.isRemote) {
+                span.classList.add("remote");
+                span.innerText = `remotes/${ref.name}`;
+            } else if (ref.isTag) {
+                span.classList.add("tag");
+                span.innerText = `tag: ${ref.name}`;
+            } else {
+                span.innerText = ref.name;
+            }
+            message.appendChild(span);
+        });
+    }
+
     var txt = document.createTextNode(commit.summary);
     message.appendChild(txt);
     return message;

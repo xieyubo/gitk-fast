@@ -6,12 +6,36 @@ module;
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <thirdparty/libgit2/include/git2.h>
+#include <unordered_map>
 
 export module gitkf:git_repository;
 import :client_exception;
 import :git_smart_pointer;
 import :ring_buffer;
+import :string_utils;
+
+export struct GitRef {
+    std::string name {};
+    std::string id {};
+    bool isTag {};
+    bool isBranch {};
+    bool isRemote {};
+};
+
+export template <size_t N>
+std::string GitHashToString(const unsigned char (&hash)[N])
+{
+    static const char kHex[] = "0123456789abcdef";
+    std::string res(40, '\0');
+    auto* pData = res.data();
+    for (auto ch : hash) {
+        *pData++ = kHex[ch >> 4];
+        *pData++ = kHex[ch & 0xf];
+    }
+    return res;
+}
 
 export class GitRepository {
 public:
@@ -35,9 +59,31 @@ public:
         m_workDir = std::filesystem::path { m_repoPath }.parent_path().string();
     }
 
+    git_repository* Get() const { return m_pRepo.get(); }
     git_repository* GetRepo() const { return m_pRepo.get(); }
     const std::string& GetRepoRoot() const { return m_repoPath; }
     const std::string& GetRepoWorkDir() const { return m_workDir; }
+
+    std::unordered_multimap<std::string, GitRef> GetRefs()
+    {
+        std::unordered_multimap<std::string, GitRef> refs {};
+        git_reference_foreach(
+            m_pRepo.get(),
+            [](git_reference* pReference, void* payload) {
+                auto id = GitHashToString(git_reference_target(pReference)->id);
+                GitRef ref {};
+                ref.name = TrimLeft(git_reference_name(pReference), { "refs/heads/", "refs/remotes/", "refs/tags/" });
+                ref.id = id;
+                ref.isTag = git_reference_is_tag(pReference);
+                ref.isBranch = git_reference_is_branch(pReference);
+                ref.isRemote = git_reference_is_remote(pReference);
+                ((std::unordered_multimap<std::string, GitRef>*)payload)->emplace(std::move(id), std::move(ref));
+                git_reference_free(pReference);
+                return 0;
+            },
+            &refs);
+        return refs;
+    }
 
 private:
     std::string m_repoPath {};

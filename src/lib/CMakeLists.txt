@@ -20,6 +20,7 @@ target_sources(gitkf_lib PUBLIC FILE_SET CXX_MODULES FILES
     module.cpp
     option.cpp
     ring_buffer.cpp
+    string_utils.cpp
     ${gitkf_lib_platform}/platform_utils.cpp
 )
 

@@ -86,11 +86,30 @@ pre {
         .graph-and-message {
             display: flex;
             flex: 7;
-            padding: 8px;
+            padding: 4px 8px;
 
             .graph {
                 margin-right: 16px;
                 margin: -8px 8px -8px -8px;
+            }
+
+            .ref {
+                margin-right: 4px;
+                font-size: 12px;
+                background-color: #00e600;
+                color: #000;
+                display: inline-flex;
+                justify-content: center;
+                padding: 2px 4px;
+                border-radius: 5px;
+            }
+
+            .ref.remote {
+                background-color: #ff9900;
+            }
+
+            .ref.tag {
+                background-color: #f4e349;
             }
 
             .message {
