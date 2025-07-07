@@ -67,21 +67,28 @@ public:
     std::unordered_multimap<std::string, GitRef> GetRefs()
     {
         std::unordered_multimap<std::string, GitRef> refs {};
+        auto payload = std::make_pair(&refs, m_pRepo.get());
         git_reference_foreach(
             m_pRepo.get(),
             [](git_reference* pReference, void* payload) {
-                auto id = GitHashToString(git_reference_target(pReference)->id);
+                auto pPair = (std::pair<std::unordered_multimap<std::string, GitRef>*, git_repository*>*)payload;
+                auto* pRefs = pPair->first;
+                auto* pRepo = pPair->second;
+                auto name = git_reference_name(pReference);
+                git_oid oid {};
+                git_reference_name_to_id(&oid, pRepo, name);
+                auto id = GitHashToString(oid.id);
                 GitRef ref {};
-                ref.name = TrimLeft(git_reference_name(pReference), { "refs/heads/", "refs/remotes/", "refs/tags/" });
+                ref.name = TrimLeft(name, { "refs/heads/", "refs/remotes/", "refs/tags/" });
                 ref.id = id;
                 ref.isTag = git_reference_is_tag(pReference);
                 ref.isBranch = git_reference_is_branch(pReference);
                 ref.isRemote = git_reference_is_remote(pReference);
-                ((std::unordered_multimap<std::string, GitRef>*)payload)->emplace(std::move(id), std::move(ref));
+                pRefs->emplace(std::move(id), std::move(ref));
                 git_reference_free(pReference);
                 return 0;
             },
-            &refs);
+            &payload);
         return refs;
     }
 
